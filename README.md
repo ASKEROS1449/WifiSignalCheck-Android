@@ -1,0 +1,1 @@
+Small inno-project for my work (ISP KATV1) testing Android Studio capabilites as well as Gemini's coding AI designed to check Wi-Fi signal strength as well as containing useful information for the users. 

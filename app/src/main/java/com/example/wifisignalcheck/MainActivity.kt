@@ -281,9 +281,13 @@ fun SignalColorApp(wifiManager: WifiManager) {
             AppDialog(onDismiss = { showDbmPopup = false }) {
                 Text("Siqnal Səviyyəsi", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                 Spacer(modifier = Modifier.height(16.dp))
-                InfoItem("🟢 -30 … -50 dBm — Əla", "Maksimal sürət üçün ideal zona.")
-                InfoItem("🟡 -60 … -70 dBm — Orta", "Stabil internet, lakin məsafə artıb.")
-                InfoItem("🔴 -80 … -90 dBm — Pis", "Kəsilmələr və aşağı sürət.")
+                InfoItem("🟢 -30 … -50 dBm — Əla", "Router yaxındadır, maksimal sürət, 4K video və oyunlar üçün idealdır.")
+                InfoItem("🟢 -50 … -60 dBm — Çox yaxşı", "Stabil internet, iş və yayım (stream) üçün uyğundur.")
+                InfoItem("🟡 -60 … -67 dBm — Normal", "İnternet stabil işləyir, lakin sürət maksimumdan aşağı ola bilər.")
+                InfoItem("🟡 -67 … -70 dBm — Limit", "Gecikmələr (lag) və video keyfiyyətinin düşməsi mümkündür.")
+                InfoItem("🟠 -70 … -80 dBm — Pis", "Aşağı sürət, tez-tez qırılmalar, oyunlar üçün uyğun deyil.")
+                InfoItem("🔴 -80 … -90 dBm — Çox pis", "İnternet demək olar ki, işləmir.")
+                InfoItem("⚫ -90 dBm və daha az", "Siqnal yoxdur.")
             }
         }
 

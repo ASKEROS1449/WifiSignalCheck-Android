@@ -10,6 +10,7 @@ import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.text.format.Formatter
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +18,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -29,8 +31,13 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -44,6 +51,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.*
+import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
@@ -105,6 +113,7 @@ fun SignalColorApp(wifiManager: WifiManager) {
     var showDbmPopup by rememberSaveable { mutableStateOf(false) }
     var showFrequencyPopup by rememberSaveable { mutableStateOf(false) }
     var showIpPopup by rememberSaveable { mutableStateOf(false) }
+    var showSpeedtestPopup by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         var lastIpCheck = 0L
@@ -198,38 +207,51 @@ fun SignalColorApp(wifiManager: WifiManager) {
 
                 Spacer(modifier = Modifier.height(30.dp))
 
-                Row {
-                    Button(
-                        onClick = {
-                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                                wifiManager.startScan()
-                                scanResults = wifiManager.scanResults.sortedByDescending { it.level }
-                                showScanPopup = true
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.25f)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.height(50.dp).weight(1f)
-                    ) {
-                        Text("Kanalları analiz et", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row {
+                        Button(
+                            onClick = {
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                                    wifiManager.startScan()
+                                    scanResults = wifiManager.scanResults.sortedByDescending { it.level }
+                                    showScanPopup = true
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.25f)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.height(50.dp).weight(1f)
+                        ) {
+                            Text("Kanalları analiz et", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Button(
+                            onClick = {
+                                val ip = getGatewayIp(context)
+                                try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://$ip"))) } catch (e: Exception) {}
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.25f)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.height(50.dp).weight(0.6f)
+                        ) {
+                            Text("Router", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
-
                     Button(
-                        onClick = {
-                            val ip = getGatewayIp(context)
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://$ip")))
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.25f)),
+                        onClick = { showSpeedtestPopup = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.35f)),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.height(50.dp).weight(0.6f)
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
                     ) {
-                        Text("Router", fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Speedtest", fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }
         }
+
+        if (showSpeedtestPopup) SpeedtestDialog(onDismiss = { showSpeedtestPopup = false })
 
         if (showScanPopup) {
             AppDialog(onDismiss = { showScanPopup = false }) {
@@ -255,7 +277,6 @@ fun SignalColorApp(wifiManager: WifiManager) {
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
-
                 RecommendationBlock(frequency, scanResults)
             }
         }
@@ -293,13 +314,7 @@ fun SignalColorApp(wifiManager: WifiManager) {
                         placeholder = { Text("Port (məs. 443)", fontSize = 12.sp) },
                         modifier = Modifier.weight(1f).height(52.dp),
                         shape = RoundedCornerShape(8.dp),
-                        singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFFF5F5F5),
-                            unfocusedContainerColor = Color(0xFFF5F5F5),
-                            focusedIndicatorColor = Color(0xFF2196F3),
-                            unfocusedIndicatorColor = Color.Transparent
-                        )
+                        singleLine = true
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
@@ -315,8 +330,7 @@ fun SignalColorApp(wifiManager: WifiManager) {
                         },
                         enabled = !isPortChecking && portInput.isNotEmpty(),
                         modifier = Modifier.height(52.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
+                        shape = RoundedCornerShape(8.dp)
                     ) {
                         if (isPortChecking) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                         else Text("Yoxla")
@@ -342,7 +356,7 @@ fun SignalColorApp(wifiManager: WifiManager) {
                 InfoItem("🟢 -30 … -50 dBm — Əla", "Router yaxındadır, maksimal sürət, 4K video və oyunlar üçün idealdır.")
                 InfoItem("🟢 -50 … -60 dBm — Çox yaxşı", "Stabil internet, iş və yayım (stream) üçün uyğundur.")
                 InfoItem("🟡 -60 … -67 dBm — Normal", "İnternet stabil işləyir, lakin sürət maksimumdan aşağı ola bilər.")
-                InfoItem("🟡 -67 … -70 dBm — Limit", "Gecikmələr (lag) və video keyfiyyətinin düşməsi mümkündür.")
+                InfoItem("🟡 -67 … -70 dBm — Limit", "Gecikmələr (lag) və video keyвələrinin düşməси mümkündür.")
                 InfoItem("🟠 -70 … -80 dBm — Pis", "Aşağı sürət, tez-tez qırılmalar, oyunlar üçün uyğun deyil.")
                 InfoItem("🔴 -80 … -90 dBm — Çox pis", "İnternet demək olar ki, işləmir.")
                 InfoItem("⚫ -90 dBm və daha az", "Siqnal yoxdur.")
@@ -360,6 +374,175 @@ fun SignalColorApp(wifiManager: WifiManager) {
                 Text("Çox yüksək sürət, lakin divarlardan zəif keçir.", fontSize = 14.sp)
             }
         }
+    }
+}
+
+@Composable
+fun SpeedtestDialog(onDismiss: () -> Unit) {
+    var pingVal by remember { mutableStateOf("-") }
+    var downVal by remember { mutableStateOf("-") }
+    var statusText by remember { mutableStateOf("Hazır") }
+    var isRunning by remember { mutableStateOf(false) }
+    val speedHistory = remember { mutableStateListOf<Pair<Float, Float>>() }
+    val scope = rememberCoroutineScope()
+    var job by remember { mutableStateOf<Job?>(null) }
+
+    fun stopTest() { job?.cancel(); isRunning = false; statusText = "Dayandırıldı" }
+    BackHandler { if (isRunning) stopTest() else onDismiss() }
+
+    Dialog(onDismissRequest = { if (!isRunning) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
+            Column(modifier = Modifier.padding(20.dp).systemBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Sürət Analizi", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text(statusText, color = Color.Gray)
+                Spacer(modifier = Modifier.height(40.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    SpeedResultItem("Ping", pingVal, "ms")
+                    SpeedResultItem("Download", downVal, "Mbps")
+                }
+                Spacer(modifier = Modifier.height(30.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(220.dp).padding(horizontal = 10.dp)) {
+                    SpeedGraph(speedHistory, Modifier.fillMaxSize())
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                Button(
+                    onClick = {
+                        if (isRunning) return@Button
+                        isRunning = true; speedHistory.clear(); pingVal = "-"; downVal = "-"
+                        job = scope.launch(Dispatchers.IO) {
+                            statusText = "Ping ölçülür..."
+                            val p = measureHighPrecisionPing("149.255.155.105", 8080)
+                            pingVal = if (p > 0) "%.2f".format(p) else "Xəta"
+
+                            statusText = "Yükləmə testi (15 san)..."
+                            try {
+                                val url = "https://sp1.katv1.net.prod.hosts.ooklaserver.net:8080/download?nocache=8781b173&size=690000000"
+                                measureDownload(url) { speed, elapsed ->
+                                    downVal = "%.1f".format(speed)
+                                    speedHistory.add(elapsed to speed)
+                                }
+                                if (isActive) statusText = "Tamamlandı"
+                            } catch (e: Exception) {
+                                if (isActive) statusText = "Xəta baş verdi"
+                            } finally { isRunning = false }
+                        }
+                    },
+                    enabled = !isRunning,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    if (isRunning) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                    else Text("BAŞLAT", fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = { if (isRunning) stopTest() else onDismiss() }, modifier = Modifier.padding(top = 8.dp)) {
+                    Text(if (isRunning) "LƏĞV ET" else "GERİ", color = Color.Red, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+suspend fun measureHighPrecisionPing(host: String, port: Int): Double = withContext(Dispatchers.IO) {
+    var total = 0.0
+    var count = 0
+    repeat(3) {
+        try {
+            val start = System.nanoTime()
+            val socket = Socket()
+            socket.connect(InetSocketAddress(host, port), 2000)
+            val end = System.nanoTime()
+            socket.close()
+            total += (end - start) / 1_000_000.0
+            count++
+        } catch (e: Exception) { }
+    }
+    if (count > 0) total / count else -1.0
+}
+
+suspend fun measureDownload(urlStr: String, onProgress: (Float, Float) -> Unit) {
+    withContext(Dispatchers.IO) {
+        val start = System.currentTimeMillis()
+        var totalBytes = 0L
+        var lastUpdate = 0L
+        val conn = URL(urlStr).openConnection() as HttpURLConnection
+        conn.connectTimeout = 5000
+        conn.readTimeout = 10000
+        try {
+            conn.inputStream.use { input ->
+                val buffer = ByteArray(32768)
+                while (isActive) {
+                    yield()
+                    val read = input.read(buffer)
+                    if (read == -1) break
+                    totalBytes += read
+                    val now = System.currentTimeMillis()
+                    val elapsedSec = (now - start) / 1000f
+                    if (elapsedSec > 15.0f) break
+                    if (now - lastUpdate > 300) {
+                        if (elapsedSec > 0) {
+                            val speed = ((totalBytes * 8) / 1_000_000.0 / elapsedSec).toFloat()
+                            onProgress(speed, elapsedSec)
+                        }
+                        lastUpdate = now
+                    }
+                }
+            }
+        } finally { conn.disconnect() }
+    }
+}
+
+@Composable
+fun SpeedGraph(data: List<Pair<Float, Float>>, modifier: Modifier) {
+    Canvas(modifier = modifier) {
+        val paddingLeft = 100f
+        val paddingBottom = 60f
+        val graphW = size.width - paddingLeft
+        val graphH = size.height - paddingBottom
+        val maxSpeed = 100f
+        val maxTime = 15f
+
+        val ySteps = listOf(0, 25, 50, 75, 100)
+        ySteps.forEach { step ->
+            val y = graphH - (step / maxSpeed * graphH)
+            drawLine(Color.LightGray.copy(0.4f), Offset(paddingLeft, y), Offset(size.width, y), 1f)
+            drawContext.canvas.nativeCanvas.drawText(
+                "$step", 10f, y + 10f,
+                android.graphics.Paint().apply { color = android.graphics.Color.GRAY; textSize = 26f }
+            )
+        }
+
+        drawLine(Color.Black, Offset(paddingLeft, 0f), Offset(paddingLeft, graphH), 2f)
+        drawLine(Color.Black, Offset(paddingLeft, graphH), Offset(size.width, graphH), 2f)
+
+        if (data.isNotEmpty()) {
+            val path = Path()
+            data.forEachIndexed { i, pair ->
+                val time = pair.first
+                val speed = pair.second
+                val x = paddingLeft + (time / maxTime * graphW).coerceAtMost(graphW)
+                val y = graphH - (speed.coerceAtMost(maxSpeed) / maxSpeed * graphH)
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            drawPath(path, Color(0xFF6200EE), style = Stroke(width = 5f, pathEffect = PathEffect.cornerPathEffect(30f)))
+        }
+
+        val xLabels = listOf(0, 3, 6, 9, 12, 15)
+        xLabels.forEach { sec ->
+            val x = paddingLeft + (sec.toFloat() / maxTime * graphW)
+            drawContext.canvas.nativeCanvas.drawText(
+                "${sec}s", x, size.height - 10f,
+                android.graphics.Paint().apply { color = android.graphics.Color.GRAY; textSize = 24f; textAlign = android.graphics.Paint.Align.CENTER }
+            )
+        }
+    }
+}
+
+@Composable
+fun SpeedResultItem(l: String, v: String, u: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(l, fontSize = 14.sp, color = Color.Gray)
+        Text(v, fontSize = 32.sp, fontWeight = FontWeight.Black)
+        Text(u, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
     }
 }
 
@@ -462,9 +645,7 @@ suspend fun checkPort(ip: String, port: Int): Boolean = withContext(Dispatchers.
         socket.connect(InetSocketAddress(ip, port), 4000)
         socket.close()
         true
-    } catch (e: Exception) {
-        false
-    }
+    } catch (e: Exception) { false }
 }
 
 fun calculateSignalColor(dbm: Int): Color {

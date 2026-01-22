@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.net.wifi.ScanResult
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.text.format.Formatter
@@ -99,6 +100,8 @@ fun SignalColorApp(wifiManager: WifiManager) {
     var portStatus by rememberSaveable { mutableStateOf<Boolean?>(null) }
     var isPortChecking by remember { mutableStateOf(false) }
 
+    var scanResults by remember { mutableStateOf<List<ScanResult>>(emptyList()) }
+    var showScanPopup by rememberSaveable { mutableStateOf(false) }
     var showDbmPopup by rememberSaveable { mutableStateOf(false) }
     var showFrequencyPopup by rememberSaveable { mutableStateOf(false) }
     var showIpPopup by rememberSaveable { mutableStateOf(false) }
@@ -141,7 +144,14 @@ fun SignalColorApp(wifiManager: WifiManager) {
 
     Box(modifier = Modifier.fillMaxSize().background(animatedBgColor), contentAlignment = Alignment.Center) {
         if (!isConnected) {
-            Text("Bağlı deyil", fontSize = 24.sp, color = Color.White, fontWeight = FontWeight.Bold)
+            Text(
+                text = "Cihazınız Wi-Fi şəbəkəsinə bağlı deyil",
+                fontSize = 20.sp,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 30.dp)
+            )
         } else {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -188,17 +198,65 @@ fun SignalColorApp(wifiManager: WifiManager) {
 
                 Spacer(modifier = Modifier.height(30.dp))
 
-                Button(
-                    onClick = {
-                        val ip = getGatewayIp(context)
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://$ip")))
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.25f)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.height(50.dp)
-                ) {
-                    Text("Router ayarlarına daxil ol", fontWeight = FontWeight.ExtraBold, color = Color.White)
+                Row {
+                    Button(
+                        onClick = {
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                                wifiManager.startScan()
+                                scanResults = wifiManager.scanResults.sortedByDescending { it.level }
+                                showScanPopup = true
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.25f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(50.dp).weight(1f)
+                    ) {
+                        Text("Kanalları analiz et", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Button(
+                        onClick = {
+                            val ip = getGatewayIp(context)
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("http://$ip")))
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.25f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(50.dp).weight(0.6f)
+                    ) {
+                        Text("Router", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
                 }
+            }
+        }
+
+        if (showScanPopup) {
+            AppDialog(onDismiss = { showScanPopup = false }) {
+                Text("Kanal Analizatoru", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Column(modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                    scanResults.forEach { result ->
+                        val resSsid = result.SSID.ifEmpty { "Gizli şəbəkə" }
+                        val chan = convertFrequencyToChannel(result.frequency)
+                        val signal = result.level
+
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(resSsid, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
+                                val band = if (result.frequency > 5925) "6 GHz" else if (result.frequency > 4900) "5 GHz" else "2.4 GHz"
+                                Text("Kanal: $chan | $band", fontSize = 12.sp, color = Color.DarkGray)
+                            }
+                            Text("$signal dBm", fontWeight = FontWeight.Bold, color = if (signal > -60) Color(0xFF2E7D32) else if (signal > -80) Color(0xFFF9A825) else Color(0xFFD32F2F))
+                        }
+                        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                RecommendationBlock(frequency, scanResults)
             }
         }
 
@@ -306,6 +364,48 @@ fun SignalColorApp(wifiManager: WifiManager) {
 }
 
 @Composable
+fun RecommendationBlock(currentFreq: Int, results: List<ScanResult>) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFE3F2FD), RoundedCornerShape(12.dp))
+            .padding(16.dp)
+    ) {
+        Column {
+            if (currentFreq > 4900 && currentFreq <= 5925) {
+                val bestLow = suggestBest5GHzLow(results)
+                Text("Wi-Fi 5 GHz Analizi", fontSize = 14.sp, color = Color(0xFF1565C0), fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Məsləhət görülən kanal: $bestLow", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF0D47A1))
+                Text("Bu kanallar bütün cihazlar tərəfindən dəstəklənir.", fontSize = 13.sp, color = Color.DarkGray)
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "💡 Əgər routeriniz dəstəkləyirsə, 100-cü kanaldan yuxarı (DFS) kanalları seçmək daha təmiz bağlantı verə bilər.",
+                    fontSize = 12.sp, color = Color(0xFF1976D2), fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                )
+            } else if (currentFreq <= 2484) {
+                val best = suggestBestChannel(results)
+                Text("Wi-Fi 2.4 GHz Analizi", fontSize = 14.sp, color = Color(0xFF1565C0), fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Məsləhət görülən kanal: $best", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF0D47A1))
+            } else {
+                Text("Wi-Fi Analizi", fontSize = 14.sp, color = Color(0xFF1565C0), fontWeight = FontWeight.Bold)
+                Text("6 GHz diapazonu təmizdir.", fontSize = 15.sp)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(color = Color.Black.copy(alpha = 0.1f))
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "⚠️ Qeyd: Bəzi cihazlar müəyyən kanalları dəstəkləməyə bilər, bu səbəbdən məsləhətlər tövsiyə xarakteri daşıyır.",
+                fontSize = 11.sp, lineHeight = 14.sp, color = Color.Gray
+            )
+        }
+    }
+}
+
+@Composable
 fun AppDialog(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(
@@ -314,7 +414,7 @@ fun AppDialog(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().systemBarsPadding().padding(24.dp)) {
                 Column(
-                    modifier = Modifier.background(Color.White, RoundedCornerShape(20.dp)).padding(20.dp).fillMaxWidth().verticalScroll(rememberScrollState()).clickable(enabled = false) { },
+                    modifier = Modifier.background(Color.White, RoundedCornerShape(20.dp)).padding(20.dp).fillMaxWidth().clickable(enabled = false) { },
                     content = content
                 )
             }
@@ -328,6 +428,32 @@ fun InfoItem(title: String, desc: String) {
         Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.Black)
         Text(desc, fontSize = 13.sp, color = Color.DarkGray)
     }
+}
+
+fun suggestBest5GHzLow(results: List<ScanResult>): Int {
+    val low5G = listOf(36, 40, 44, 48)
+    val scores = mutableMapOf(36 to 0.0, 40 to 0.0, 44 to 0.0, 48 to 0.0)
+    results.filter { it.frequency in 5170..5250 }.forEach { result ->
+        val chan = convertFrequencyToChannel(result.frequency)
+        if (scores.containsKey(chan)) {
+            scores[chan] = scores[chan]!! + 10.0.pow(result.level.toDouble() / 10.0)
+        }
+    }
+    return scores.minByOrNull { it.value }?.key ?: 36
+}
+
+fun suggestBestChannel(results: List<ScanResult>): Int {
+    val standardChannels = listOf(1, 6, 11)
+    val scores = mutableMapOf(1 to 0.0, 6 to 0.0, 11 to 0.0)
+    results.filter { it.frequency < 4000 }.forEach { result ->
+        val channel = convertFrequencyToChannel(result.frequency)
+        val weight = 10.0.pow(result.level.toDouble() / 10.0)
+        standardChannels.forEach { standard ->
+            val distance = kotlin.math.abs(standard - channel)
+            if (distance <= 2) scores[standard] = scores[standard]!! + weight / (distance + 1)
+        }
+    }
+    return scores.minByOrNull { it.value }?.key ?: 1
 }
 
 suspend fun checkPort(ip: String, port: Int): Boolean = withContext(Dispatchers.IO) {
@@ -352,6 +478,7 @@ fun convertFrequencyToChannel(freq: Int): Int = when {
     freq == 2484 -> 14
     freq in 2412..2472 -> (freq - 2412) / 5 + 1
     freq in 5170..5825 -> (freq - 5170) / 5 + 34
+    freq in 5945..7125 -> (freq - 5945) / 5 + 1
     else -> 0
 }
 
